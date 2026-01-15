@@ -3,7 +3,10 @@
 # backport-pr.sh - Backport a merged PR to a release branch
 #
 # Usage:
-#   ./backport-pr.sh <PR_NUMBER> <RELEASE_BRANCH>
+#   ./backport-pr.sh [--suffix SUFFIX] <PR_NUMBER> <RELEASE_BRANCH>
+#
+# Options:
+#   --suffix SUFFIX - Custom suffix for the backport branch (default: -release)
 #
 # Arguments:
 #   PR_NUMBER       - The number of the merged PR to backport
@@ -20,8 +23,9 @@
 #   - jq must be installed for JSON parsing
 #   - Git repository must be properly configured
 #
-# Example:
+# Examples:
 #   ./backport-pr.sh 1234 release/v2.1
+#   ./backport-pr.sh --suffix -hotfix 1234 release/v2.1
 #
 # The script will:
 #   1. Fetch PR metadata from GitHub (title, body, merge commit)
@@ -31,6 +35,28 @@
 #   5. Push the branch and create a PR (with confirmation prompts)
 
 set -euo pipefail
+
+# Default suffix for backport branch
+BRANCH_SUFFIX="-release"
+
+# Parse optional flags
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --suffix)
+            BRANCH_SUFFIX="$2"
+            shift 2
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+# Parse required arguments
+if [ $# -lt 2 ]; then
+    echo "Usage: $0 [--suffix SUFFIX] <PR_NUMBER> <RELEASE_BRANCH>"
+    exit 1
+fi
 
 PR_NUMBER=$1
 RELEASE_BRANCH=$2
@@ -64,7 +90,7 @@ if [ -z "$JIRA_TICKET" ]; then
     JIRA_TICKET="UNKNOWN"
 fi
 
-BACKPORT_BRANCH="$PR_BRANCH-release"
+BACKPORT_BRANCH="$PR_BRANCH$BRANCH_SUFFIX"
 
 NEW_PR_TITLE="${PR_TITLE} (release)"
 NEW_PR_BODY=$(cat <<EOF
@@ -136,8 +162,21 @@ git cherry-pick -x "$MERGE_SHA" || {
             exit 1
         fi
     else
-        echo "❌ Cherry-pick failed. Please resolve conflicts manually."
-        exit 1
+        echo "❌ Cherry-pick failed due to conflicts."
+        echo "📝 Please resolve the conflicts manually:"
+        echo "   1. Fix the conflicts in your editor"
+        echo "   2. Stage the resolved files: git add <files>"
+        echo "   3. Continue the cherry-pick: git cherry-pick --continue"
+        echo
+        read -p "❓ Press Enter once you've resolved conflicts and completed the cherry-pick... " WAIT_FOR_RESOLVE
+        
+        # Check if cherry-pick was completed successfully
+        if git status | grep -q "cherry-pick"; then
+            echo "❌ Cherry-pick still in progress. Please complete or abort it."
+            exit 1
+        fi
+        
+        echo "✅ Cherry-pick resolution confirmed."
     fi
 }
 
