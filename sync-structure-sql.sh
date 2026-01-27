@@ -55,12 +55,15 @@ fi
 
 echo ""
 echo "📝 Found ${MISSING_COUNT} missing migration(s)"
-echo "➕ Appending missing migrations to structure.sql..."
+echo "➕ Adding missing migrations to the top of structure.sql..."
 
-# Find the last migration line (the one ending with semicolon)
-LAST_MIGRATION_LINE=$(grep -n "^('[0-9]\{14\}');" "${STRUCTURE_FILE}" | tail -1 | cut -d: -f1)
+# Sort missing migrations in descending order (newest first)
+MISSING_SORTED=$(echo "$MISSING_MIGRATIONS" | sort -r)
 
-if [ -z "$LAST_MIGRATION_LINE" ]; then
+# Find the first migration line
+FIRST_MIGRATION_LINE=$(grep -n "^('[0-9]\{14\}')" "${STRUCTURE_FILE}" | head -1 | cut -d: -f1)
+
+if [ -z "$FIRST_MIGRATION_LINE" ]; then
   echo "❌ Error: Could not find migration list in structure.sql"
   exit 1
 fi
@@ -68,26 +71,20 @@ fi
 # Create a temporary file
 TEMP_FILE=$(mktemp)
 
-# Copy everything up to and including the last migration
-head -n "$LAST_MIGRATION_LINE" "${STRUCTURE_FILE}" > "$TEMP_FILE"
+# Copy everything before the first migration
+head -n $((FIRST_MIGRATION_LINE - 1)) "${STRUCTURE_FILE}" > "$TEMP_FILE"
 
-# Remove the semicolon from the last line and add a comma
-sed -i.bak '$ s/);$/),/' "$TEMP_FILE" && rm -f "$TEMP_FILE.bak"
-
-# Add missing migrations (already in correct format from comm)
-echo "$MISSING_MIGRATIONS" | while IFS= read -r migration; do
+# Add missing migrations at the top (in descending order)
+echo "$MISSING_SORTED" | while IFS= read -r migration; do
   if [ -n "$migration" ]; then
     echo "('${migration}')," >> "$TEMP_FILE"
   fi
 done
 
-# Change the last comma to semicolon
-sed -i.bak '$ s/,$/;/' "$TEMP_FILE" && rm -f "$TEMP_FILE.bak"
-
-# Append the rest of the file
-tail -n +$((LAST_MIGRATION_LINE + 1)) "${STRUCTURE_FILE}" >> "$TEMP_FILE"
+# Append the rest of the file (from the first existing migration onwards)
+tail -n +$FIRST_MIGRATION_LINE "${STRUCTURE_FILE}" >> "$TEMP_FILE"
 
 # Replace the original file
 mv "$TEMP_FILE" "${STRUCTURE_FILE}"
 
-echo "✅ Successfully appended missing migrations to structure.sql"
+echo "✅ Successfully added missing migrations to the top of structure.sql"
