@@ -56,7 +56,10 @@ const REPO_ABBREVIATIONS = {
   'seismic/web-skills-assets': 'WSA',
   'seismic/web-scorecards-assets': 'WSCA',
   'lessonly/lessonly': 'Lessonly',
-  'seismic/web-learning-lesson-manager-assets': 'WLLMA',
+  'seismic/web-learning-lesson-manager-assets': 'LessonManager',
+  'seismic/web-learning-lesson-builder': 'LessonBuilder',
+  'seismic/web-learning-elements-assets': 'ElementsLibrary',
+  'seismic/web-learning-generation-assets': 'AiLessonBuilder'
   // Add more as needed
 };
 
