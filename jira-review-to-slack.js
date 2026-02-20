@@ -151,24 +151,32 @@ function getRepoAbbreviation(repoName) {
   return REPO_ABBREVIATIONS[repoName] || repoName;
 }
 
-function formatSlackLine(emoji, repoAbbr, prNumber, issueKey, summary, prUrl) {
-  const jiraUrl = `${JIRA_HOST}/browse/${issueKey}`;
-  const issueKeyLink = `<${jiraUrl}|[${issueKey}]>`;
+function formatSlackLine(emoji, repoAbbr, prNumber, issueKeys, summary, prUrl) {
+  // issueKeys can be a string or an array
+  const keys = Array.isArray(issueKeys) ? issueKeys : [issueKeys];
+  const issueKeyLinks = keys.map(key => {
+    const jiraUrl = `${JIRA_HOST}/browse/${key}`;
+    return `<${jiraUrl}|[${key}]>`;
+  }).join(' / ');
   let prText = `${repoAbbr}#${prNumber}${summary ? ' ' + summary : ''}`;
   if (prUrl && prNumber && prNumber !== '???') {
     prText = `<${prUrl}|${prText}>`;
   }
-  return `${emoji} ${issueKeyLink} ${prText}`;
+  return `${emoji} ${issueKeyLinks} ${prText}`;
 }
 
-function formatHtmlLine(emoji, repoAbbr, prNumber, issueKey, summary, prUrl) {
-  const jiraUrl = `${JIRA_HOST}/browse/${issueKey}`;
-  const issueKeyLink = `<a href="${jiraUrl}">[${issueKey}]</a>`;
+function formatHtmlLine(emoji, repoAbbr, prNumber, issueKeys, summary, prUrl) {
+  // issueKeys can be a string or an array
+  const keys = Array.isArray(issueKeys) ? issueKeys : [issueKeys];
+  const issueKeyLinks = keys.map(key => {
+    const jiraUrl = `${JIRA_HOST}/browse/${key}`;
+    return `<a href="${jiraUrl}">[${key}]</a>`;
+  }).join(' / ');
   let prText = `${repoAbbr}#${prNumber}${summary ? ' ' + summary : ''}`;
   if (prUrl && prNumber && prNumber !== '???') {
     prText = `<a href="${prUrl}">${prText}</a>`;
   }
-  return `<li>${emoji} ${issueKeyLink} ${prText}</li>`;
+  return `<li>${emoji} ${issueKeyLinks} ${prText}</li>`;
 }
 
 async function inspectTicket(ticketKey) {
@@ -333,10 +341,50 @@ async function main() {
     return;
   }
 
-  // Group selected PRs by column
+  // Get selected PRs in order
   const selectedPRs = answer.map(idx => prItems[idx]);
-  const reviewPRs = selectedPRs.filter(pr => pr.column === 'review');
-  const testPRs = selectedPRs.filter(pr => pr.column === 'test');
+
+  // Group selected PRs by URL and column to combine tickets referencing the same PR in the same column
+  const prsByUrlAndColumn = new Map();
+  for (const pr of selectedPRs) {
+    const key = `${pr.prUrl}|${pr.column}`;
+    if (!prsByUrlAndColumn.has(key)) {
+      prsByUrlAndColumn.set(key, []);
+    }
+    prsByUrlAndColumn.get(key).push(pr);
+  }
+
+  // Create consolidated PR items maintaining the original order
+  const consolidatedPRs = [];
+  const seenKeys = new Set();
+  for (const pr of selectedPRs) {
+    const key = `${pr.prUrl}|${pr.column}`;
+    if (seenKeys.has(key)) {
+      continue; // Already processed this PR URL + column combination
+    }
+    seenKeys.add(key);
+    
+    const prsForThisKey = prsByUrlAndColumn.get(key);
+    if (prsForThisKey.length > 1) {
+      // Multiple tickets reference the same PR in the same column - combine them
+      const issueKeys = prsForThisKey.map(p => p.issueKey);
+      consolidatedPRs.push({
+        repoAbbr: pr.repoAbbr,
+        prNumber: pr.prNumber,
+        issueKey: issueKeys, // Array of issue keys
+        summary: pr.summary,
+        prUrl: pr.prUrl,
+        column: pr.column,
+      });
+    } else {
+      // Single ticket for this PR in this column - keep as is
+      consolidatedPRs.push(pr);
+    }
+  }
+
+  // Group consolidated PRs by column
+  const reviewPRs = consolidatedPRs.filter(pr => pr.column === 'review');
+  const testPRs = consolidatedPRs.filter(pr => pr.column === 'test');
   
   // Compose final lines with emojis, grouped by column
   const finalLines = [];
